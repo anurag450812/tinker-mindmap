@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── base ── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ── dark theme (default) ── */
+html.dark body {
+  background: #0a0a0a;
+  color: #fff;
+}
+
+/* ── light theme ── */
+html.light body {
+  background: #f8f9fa;
+  color: #111;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── dark scrollbar ── */
+html.dark ::-webkit-scrollbar { width: 4px; height: 4px; }
+html.dark ::-webkit-scrollbar-track { background: transparent; }
+html.dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 999px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* ── light scrollbar ── */
+html.light ::-webkit-scrollbar { width: 4px; height: 4px; }
+html.light ::-webkit-scrollbar-track { background: transparent; }
+html.light ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 999px; }
+html.light ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.2); }
+
+/* ── ReactFlow base overrides ── */
+.react-flow__pane { cursor: grab; }
+.react-flow__pane:active { cursor: grabbing; }
+.react-flow__node { cursor: default; }
+.react-flow__minimap { border-radius: 12px !important; }
+.react-flow__controls { border-radius: 12px !important; }
+
+/* ── dark mode ReactFlow ── */
+html.dark .react-flow__edge-path {
+  stroke: rgba(255, 255, 255, 0.12) !important;
+}
+html.dark .react-flow__controls button {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+html.dark .react-flow__controls button:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+html.dark .react-flow__controls button svg {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* ── light mode ReactFlow ── */
+html.light .react-flow__edge-path {
+  stroke: rgba(0, 0, 0, 0.15) !important;
+}
+html.light .react-flow__controls button {
+  background: transparent !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: rgba(0, 0, 0, 0.5) !important;
+  fill: rgba(0, 0, 0, 0.5) !important;
+}
+html.light .react-flow__controls button:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+html.light .react-flow__controls button svg {
+  fill: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ── toolbar buttons (dark) ── */
+.toolbar-btn {
+  @apply px-2 py-1 rounded-md text-[10px] font-medium text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-all;
+}
+/* ── toolbar buttons (light) ── */
+.toolbar-btn-light {
+  @apply !text-gray-400 hover:!text-gray-700 hover:!bg-gray-100;
+}
+
+/* ── keyboard hint (dark) ── */
+.kbd {
+  @apply px-1 py-0.5 rounded bg-white/[0.06] text-white/30 font-mono;
+}
+/* ── keyboard hint (light) ── */
+.kbd-light {
+  @apply !bg-gray-100 !text-gray-400;
+}
+
+/* ── shake animation ── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+/* ── selection ring for nodes ── */
+.react-flow__node.selected > div {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+}
