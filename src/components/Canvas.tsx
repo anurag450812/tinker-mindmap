@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useMemo, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -91,6 +92,25 @@ function edgeStyle(theme: 'dark' | 'light') {
   };
 }
 
+function edgeTemplate(layoutMode: LayoutMode, theme: 'dark' | 'light') {
+  const base = {
+    type: (layoutMode === 'orgchart' || layoutMode === 'logic' ? 'step' : 'smoothstep') as Edge['type'],
+    animated: false,
+    markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+    style: edgeStyle(theme),
+  };
+
+  if (layoutMode === 'orgchart') {
+    return {
+      ...base,
+      sourceHandle: 'bottom',
+      targetHandle: 'top',
+    };
+  }
+
+  return base;
+}
+
 /* ── inner canvas (needs ReactFlowProvider ancestor) ── */
 function CanvasInner() {
   const {
@@ -165,6 +185,38 @@ function CanvasInner() {
     pushUndo({ nodes: [...nodes], edges: [...edges] });
   }, [nodes, edges, pushUndo]);
 
+  /* allow nodes to request a snapshot (for label/color edits) */
+  useEffect(() => {
+    const handler = () => snapshot();
+    window.addEventListener('canvasSnapshot', handler);
+    return () => window.removeEventListener('canvasSnapshot', handler);
+  }, [snapshot]);
+
+  /* global undo/redo so Ctrl+Z works without focusing canvas */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTyping =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isTyping) return;
+
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo, redo]);
+
   /* ── connection ── */
   const onConnect = useCallback(
     (conn: Connection) => {
@@ -173,16 +225,13 @@ function CanvasInner() {
         addEdge(
           {
             ...conn,
-            type: 'smoothstep',
-            animated: false,
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            style: edgeStyle(theme),
+            ...edgeTemplate(layoutMode, theme),
           },
           eds,
         ),
       );
     },
-    [setEdges, snapshot, theme],
+    [setEdges, snapshot, theme, layoutMode],
   );
 
   /* ── double-click canvas → new root node ── */
@@ -406,9 +455,7 @@ function CanvasInner() {
                 id: `e-${nodeId}-${childId}`,
                 source: nodeId,
                 target: childId,
-                type: 'smoothstep',
-                markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-                style: edgeStyle(theme),
+                ...edgeTemplate(layoutMode, theme),
               },
               eds,
             ),
@@ -437,9 +484,7 @@ function CanvasInner() {
             id: `e-${parentId}-${nodeId}`,
             source: parentId,
             target: nodeId,
-            type: 'smoothstep' as const,
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            style: edgeStyle(theme),
+            ...(edgeTemplate(layoutMode, theme) as object),
           };
           
           // If node had parents before, connect them to new parent
@@ -447,9 +492,7 @@ function CanvasInner() {
             id: `e-${edge.source}-${parentId}`,
             source: edge.source,
             target: parentId,
-            type: 'smoothstep' as const,
-            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-            style: edgeStyle(theme),
+            ...(edgeTemplate(layoutMode, theme) as object),
           }));
           
           setNodes((nds) => [...nds, newParent]);
@@ -473,9 +516,7 @@ function CanvasInner() {
                   id: `e-${parentEdge.source}-${siblingId}`,
                   source: parentEdge.source,
                   target: siblingId,
-                  type: 'smoothstep' as const,
-                  markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-                  style: edgeStyle(theme),
+                  ...(edgeTemplate(layoutMode, theme) as object),
                 },
               ]
             : [];
@@ -557,13 +598,13 @@ function CanvasInner() {
         onPaneClick={() => {}}
         onDoubleClick={onPaneDoubleClick}
         onPaneContextMenu={onPaneContextMenu}
+        onNodeDragStart={() => snapshot()}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.1}
         maxZoom={4}
         defaultEdgeOptions={{
-          type: 'smoothstep',
-          style: edgeStyle(theme),
+          ...edgeTemplate(layoutMode, theme),
         }}
         proOptions={{ hideAttribution: true }}
         className="!bg-transparent"
@@ -597,30 +638,32 @@ function CanvasInner() {
       </ReactFlow>
 
       {/* canvas context menu */}
-      {canvasMenu && (
-        <div
-          ref={canvasMenuRef}
-          className={`fixed z-[9999] min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden ${
-            isDark ? 'bg-gray-900/95 border-white/10' : 'bg-white/95 border-gray-200'
-          }`}
-          style={{ left: canvasMenu.x, top: canvasMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="p-1">
-            <button
-              onClick={() => addNodeAtPosition({ x: canvasMenu.flowX, y: canvasMenu.flowY })}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
-              }`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M5 12h14M12 5v14" />
-              </svg>
-              Add Node Here
-            </button>
-          </div>
-        </div>
-      )}
+      {canvasMenu && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={canvasMenuRef}
+            className={`fixed z-[9999] min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden ${
+              isDark ? 'bg-gray-900/95 border-white/10' : 'bg-white/95 border-gray-200'
+            }`}
+            style={{ left: canvasMenu.x, top: canvasMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-1">
+              <button
+                onClick={() => addNodeAtPosition({ x: canvasMenu.flowX, y: canvasMenu.flowY })}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M5 12h14M12 5v14" />
+                </svg>
+                Add Node Here
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* breadcrumb */}
       {breadcrumb.length > 1 && (
