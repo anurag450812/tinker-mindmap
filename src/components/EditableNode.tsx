@@ -15,6 +15,8 @@ function EditableNode({ id, data, selected }: NodeProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const updateNodes = useAppStore((s) => s.updateNodes);
+  const colorClipboard = useAppStore((s) => s.colorClipboard);
+  const setColorClipboard = useAppStore((s) => s.setColorClipboard);
   const pushBreadcrumb = useAppStore((s) => s.pushBreadcrumb);
   const files = useAppStore((s) => s.files);
   const theme = useAppStore((s) => s.theme);
@@ -88,6 +90,17 @@ function EditableNode({ id, data, selected }: NodeProps) {
     setShowColorPicker(false);
     setShowMenu(false);
   }, [id, updateNodes]);
+
+  const copyColor = useCallback(() => {
+    setColorClipboard(nodeColor || '');
+    setShowMenu(false);
+    setShowColorPicker(false);
+  }, [nodeColor, setColorClipboard]);
+
+  const pasteColor = useCallback(() => {
+    if (colorClipboard === null) return;
+    setColor(colorClipboard);
+  }, [colorClipboard, setColor]);
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -321,6 +334,32 @@ function EditableNode({ id, data, selected }: NodeProps) {
 
             {/* Color Picker */}
             <div className="p-1">
+              <button
+                onClick={copyColor}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                Copy Color
+              </button>
+              <button
+                onClick={pasteColor}
+                disabled={colorClipboard === null}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-30 ${
+                  isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
+                }`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M19 21H9a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h7l5 5v9a2 2 0 0 1-2 2z" />
+                  <path d="M16 3v6h6" />
+                </svg>
+                Paste Color
+              </button>
+
               <button
                 onClick={() => setShowColorPicker(!showColorPicker)}
                 className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${

@@ -60,6 +60,10 @@ export const useAppStore = create<AppState>()(
       activeFileId: null,
       breadcrumb: [],
 
+      /* ── node color clipboard ── */
+      colorClipboard: null,
+      setColorClipboard: (color) => set({ colorClipboard: color }),
+
       createFile: (name, parentFileId = null, parentNodeId = null) => {
         const f = defaultFile(name ?? 'Untitled Map', parentFileId, parentNodeId);
         set((s) => ({
@@ -111,11 +115,58 @@ export const useAppStore = create<AppState>()(
         }),
 
       togglePin: (id) =>
-        set((s) => ({
-          files: s.files.map((f) =>
-            f.id === id ? { ...f, pinned: !f.pinned } : f,
-          ),
-        })),
+        set((s) => {
+          const next = [...s.files];
+          const idx = next.findIndex((f) => f.id === id);
+          if (idx === -1) return { files: next };
+          const file = next[idx];
+          const updated = { ...file, pinned: !file.pinned, updatedAt: Date.now() };
+          next.splice(idx, 1);
+
+          // Keep portal sub-files in place; only reorder within same parentFileId group
+          const group = next.filter((f) => f.parentFileId === file.parentFileId);
+          const groupIndices = next
+            .map((f, i) => ({ f, i }))
+            .filter((x) => x.f.parentFileId === file.parentFileId)
+            .map((x) => x.i);
+
+          if (groupIndices.length === 0) {
+            next.push(updated);
+            return { files: next };
+          }
+
+          const insertIndex = (() => {
+            const firstUnpinnedInGroup = groupIndices.find((gi) => !next[gi].pinned);
+            if (updated.pinned) {
+              return groupIndices[0];
+            }
+            return firstUnpinnedInGroup ?? (groupIndices[groupIndices.length - 1] + 1);
+          })();
+
+          next.splice(insertIndex, 0, updated);
+          return { files: next };
+        }),
+
+      reorderFiles: (sourceId, targetId) =>
+        set((s) => {
+          if (sourceId === targetId) return {};
+          const next = [...s.files];
+          const sourceIndex = next.findIndex((f) => f.id === sourceId);
+          const targetIndex = next.findIndex((f) => f.id === targetId);
+          if (sourceIndex === -1 || targetIndex === -1) return {};
+          const source = next[sourceIndex];
+          const target = next[targetIndex];
+
+          // only allow reordering within same parent group and same pinned group
+          if (source.parentFileId !== target.parentFileId) return {};
+          if (source.pinned !== target.pinned) return {};
+
+          next.splice(sourceIndex, 1);
+          const newTargetIndex = next.findIndex((f) => f.id === targetId);
+          if (newTargetIndex === -1) return {};
+          next.splice(newTargetIndex, 0, source);
+          return { files: next };
+        }),
 
       /* ── canvas helpers ── */
       setNodes: (nodes) =>

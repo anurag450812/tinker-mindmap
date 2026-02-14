@@ -6,7 +6,7 @@ import { useAppStore } from '@/store/useAppStore';
 export default function Sidebar() {
   const {
     files, activeFileId, sidebarOpen,
-    createFile, deleteFile, renameFile, setActiveFile, togglePin, theme,
+    createFile, deleteFile, renameFile, setActiveFile, togglePin, reorderFiles, theme,
   } = useAppStore();
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -14,14 +14,14 @@ export default function Sidebar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
 
-  // only show top-level files, sorted: pinned first, then by creation date
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // only show top-level files, pinned first, preserving current store order
   const topFiles = useMemo(() => {
     const top = files.filter((f) => f.parentFileId === null);
-    return top.sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      return b.createdAt - a.createdAt;
-    });
+    const pinned = top.filter((f) => f.pinned);
+    const unpinned = top.filter((f) => !f.pinned);
+    return [...pinned, ...unpinned];
   }, [files]);
 
   useEffect(() => {
@@ -89,6 +89,19 @@ export default function Sidebar() {
               `}
               onClick={() => setActiveFile(f.id)}
               onDoubleClick={() => startRename(f.id, f.name)}
+              draggable
+              onDragStart={() => setDraggingId(f.id)}
+              onDragEnd={() => setDraggingId(null)}
+              onDragOver={(e) => {
+                if (!draggingId || draggingId === f.id) return;
+                e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (!draggingId || draggingId === f.id) return;
+                reorderFiles(draggingId, f.id);
+                setDraggingId(null);
+              }}
             >
               {/* pin indicator */}
               {f.pinned && (

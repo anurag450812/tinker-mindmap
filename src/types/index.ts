@@ -62,6 +62,13 @@ export interface AppState {
   popBreadcrumb: () => void;
   togglePin: (id: string) => void;
 
+  /* sidebar ordering */
+  reorderFiles: (sourceId: string, targetId: string) => void;
+
+  /* node color clipboard */
+  colorClipboard: string | null;
+  setColorClipboard: (color: string | null) => void;
+
   /* canvas – operates on the active file */
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;

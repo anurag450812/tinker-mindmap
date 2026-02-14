@@ -98,6 +98,7 @@ function edgeTemplate(layoutMode: LayoutMode, theme: 'dark' | 'light') {
     animated: false,
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: edgeStyle(theme),
+    pathOptions: layoutMode === 'orgchart' || layoutMode === 'logic' ? { offset: 40 } : undefined,
   };
 
   if (layoutMode === 'orgchart') {
@@ -119,6 +120,73 @@ function edgeTemplate(layoutMode: LayoutMode, theme: 'dark' | 'light') {
   return base;
 }
 
+const APPROX_NODE_W = 240;
+const APPROX_NODE_H = 120;
+const COLLISION_PAD = 40;
+
+function resolveCollisions(
+  inputNodes: Node[],
+  mode: LayoutMode,
+  lockedId?: string,
+): Node[] {
+  const nodes = inputNodes.map((n) => ({ ...n, position: { ...n.position } }));
+  const rect = (n: Node) => ({
+    x1: n.position.x,
+    y1: n.position.y,
+    x2: n.position.x + APPROX_NODE_W,
+    y2: n.position.y + APPROX_NODE_H,
+  });
+  const overlaps = (a: ReturnType<typeof rect>, b: ReturnType<typeof rect>) =>
+    a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+
+  for (let iter = 0; iter < 20; iter++) {
+    let moved = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = 0; j < nodes.length; j++) {
+        if (i === j) continue;
+        const a = nodes[i];
+        const b = nodes[j];
+        if (lockedId && b.id === lockedId) continue;
+        if (!overlaps(rect(a), rect(b))) continue;
+
+        const ax = a.position.x + APPROX_NODE_W / 2;
+        const ay = a.position.y + APPROX_NODE_H / 2;
+        const bx = b.position.x + APPROX_NODE_W / 2;
+        const by = b.position.y + APPROX_NODE_H / 2;
+
+        const pushRight = bx >= ax;
+        const pushDown = by >= ay;
+
+        const dx = (APPROX_NODE_W + COLLISION_PAD) * (pushRight ? 1 : -1);
+        const dy = (APPROX_NODE_H + COLLISION_PAD) * (pushDown ? 1 : -1);
+
+        if (mode === 'orgchart') {
+          b.position.x += dx;
+        } else if (mode === 'logic') {
+          b.position.y += dy;
+        } else {
+          b.position.y += dy;
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  return nodes;
+}
+
+function getClientPoint(e: unknown): { x: number; y: number } {
+  const ev = e as MouseEvent & TouchEvent;
+  // TouchEvent
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyEv = ev as any;
+  if (anyEv?.changedTouches?.[0]) {
+    return { x: anyEv.changedTouches[0].clientX, y: anyEv.changedTouches[0].clientY };
+  }
+  return { x: (ev as MouseEvent).clientX, y: (ev as MouseEvent).clientY };
+}
+
 /* ── inner canvas (needs ReactFlowProvider ancestor) ── */
 function CanvasInner() {
   const {
@@ -138,6 +206,7 @@ function CanvasInner() {
   const { screenToFlowPosition, fitView } = useReactFlow();
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canvasMenuRef = useRef<HTMLDivElement>(null);
+  const connectStartRef = useRef<{ nodeId: string | null; handleId: string | null } | null>(null);
   const isDark = theme === 'dark';
 
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
@@ -286,6 +355,38 @@ function CanvasInner() {
     [setEdges, snapshot, theme, layoutMode],
   );
 
+  const addChildNodeAt = useCallback(
+    (sourceId: string, position: { x: number; y: number }) => {
+      snapshot();
+      const sourceNode = nodes.find((n) => n.id === sourceId);
+      const childId = uid();
+      const newNode: Node = {
+        id: childId,
+        type: 'editable',
+        position,
+        data: {
+          label: 'Child',
+          isPortal: false,
+          color: (sourceNode?.data as any)?.color ?? '',
+        },
+      };
+
+      setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, childId));
+      setEdges((eds) =>
+        addEdge(
+          {
+            id: `e-${sourceId}-${childId}`,
+            source: sourceId,
+            target: childId,
+            ...edgeTemplate(layoutMode, theme),
+          },
+          eds,
+        ),
+      );
+    },
+    [layoutMode, nodes, setEdges, setNodes, snapshot, theme],
+  );
+
   /* ── double-click canvas → new root node ── */
   const onPaneDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -382,13 +483,16 @@ function CanvasInner() {
         e.preventDefault();
         snapshot();
         const parentEdge = edges.find((ed) => ed.target === selected.id);
+        const parentNode = parentEdge ? nodes.find((n) => n.id === parentEdge.source) : null;
         const siblingId = uid();
-        const pos = getSiblingPosition(selected, layoutMode);
+        const pos = parentNode
+          ? getChildPosition(parentNode, edges.filter((ed) => ed.source === parentNode.id).length, layoutMode)
+          : getSiblingPosition(selected, layoutMode);
         const newNode: Node = {
           id: siblingId,
           type: 'editable',
           position: pos,
-          data: { label: 'Sibling', isPortal: false, color: '' },
+          data: { label: 'Sibling', isPortal: false, color: (selected.data as any)?.color ?? '' },
         };
         const newEdges = parentEdge
           ? [
@@ -396,13 +500,11 @@ function CanvasInner() {
                 id: `e-${parentEdge.source}-${siblingId}`,
                 source: parentEdge.source,
                 target: siblingId,
-                type: 'smoothstep' as const,
-                markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
-                style: edgeStyle(theme),
+                ...(edgeTemplate(layoutMode, theme) as object),
               },
             ]
           : [];
-        setNodes((nds) => [...nds, newNode]);
+        setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, siblingId));
         setEdges((eds) => [...eds, ...newEdges]);
       }
 
@@ -510,7 +612,7 @@ function CanvasInner() {
             position: pos,
             data: { label: 'Child', isPortal: false, color: '' },
           };
-          setNodes((nds) => [...nds, newNode]);
+          setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, childId));
           setEdges((eds) =>
             addEdge(
               {
@@ -565,12 +667,15 @@ function CanvasInner() {
         case 'addSibling': {
           const siblingId = uid();
           const parentEdge = edges.find((ed) => ed.target === nodeId);
-          const pos = getSiblingPosition(node, layoutMode);
+          const parentNode = parentEdge ? nodes.find((n) => n.id === parentEdge.source) : null;
+          const pos = parentNode
+            ? getChildPosition(parentNode, edges.filter((ed) => ed.source === parentNode.id).length, layoutMode)
+            : getSiblingPosition(node, layoutMode);
           const newNode: Node = {
             id: siblingId,
             type: 'editable',
             position: pos,
-            data: { label: 'Sibling', isPortal: false, color: '' },
+            data: { label: 'Sibling', isPortal: false, color: (node.data as any)?.color ?? '' },
           };
           const newEdges = parentEdge
             ? [
@@ -582,7 +687,7 @@ function CanvasInner() {
                 },
               ]
             : [];
-          setNodes((nds) => [...nds, newNode]);
+          setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, siblingId));
           setEdges((eds) => [...eds, ...newEdges]);
           break;
         }
@@ -660,6 +765,22 @@ function CanvasInner() {
         onPaneClick={() => {}}
         onDoubleClick={onPaneDoubleClick}
         onPaneContextMenu={onPaneContextMenu}
+        onConnectStart={(_, params) => {
+          connectStartRef.current = { nodeId: params.nodeId ?? null, handleId: params.handleId ?? null };
+        }}
+        onConnectEnd={(e) => {
+          const start = connectStartRef.current;
+          connectStartRef.current = null;
+          if (!start?.nodeId) return;
+
+          const target = e.target as Element | null;
+          const pane = target?.closest?.('.react-flow__pane');
+          if (!pane) return;
+
+          const pt = getClientPoint(e);
+          const pos = screenToFlowPosition({ x: pt.x, y: pt.y });
+          addChildNodeAt(start.nodeId, pos);
+        }}
         onNodeDragStart={() => snapshot()}
         nodeTypes={nodeTypes}
         fitView

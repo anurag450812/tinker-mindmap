@@ -2,8 +2,8 @@ import dagre from '@dagrejs/dagre';
 import { Node, Edge } from 'reactflow';
 import { LayoutMode } from '@/types';
 
-const NODE_WIDTH = 200;
-const NODE_HEIGHT = 60;
+const NODE_WIDTH = 260;
+const NODE_HEIGHT = 120;
 
 interface LayoutOptions {
   direction: string; // TB, LR, RL, BT
