@@ -195,6 +195,8 @@ function CanvasInner() {
     theme, pushUndo, undo, redo,
   } = useAppStore();
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
   const activeFile = useMemo(
     () => files.find((f) => f.id === activeFileId) ?? null,
     [files, activeFileId],
@@ -203,7 +205,7 @@ function CanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState(activeFile?.nodes ?? []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(activeFile?.edges ?? []);
 
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, getViewport, setCenter } = useReactFlow();
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canvasMenuRef = useRef<HTMLDivElement>(null);
   const connectStartRef = useRef<{ nodeId: string | null; handleId: string | null } | null>(null);
@@ -264,6 +266,43 @@ function CanvasInner() {
     pushUndo({ nodes: [...nodes], edges: [...edges] });
   }, [nodes, edges, pushUndo]);
 
+  const maybeRevealPosition = useCallback(
+    (position: { x: number; y: number }) => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const vp = getViewport();
+      const zoom = vp.zoom || 1;
+      const viewLeft = (-vp.x) / zoom;
+      const viewTop = (-vp.y) / zoom;
+      const viewRight = (rect.width - vp.x) / zoom;
+      const viewBottom = (rect.height - vp.y) / zoom;
+
+      const nodeLeft = position.x;
+      const nodeTop = position.y;
+      const nodeRight = position.x + APPROX_NODE_W;
+      const nodeBottom = position.y + APPROX_NODE_H;
+
+      const margin = 40;
+      const isOutside =
+        nodeLeft < viewLeft + margin ||
+        nodeTop < viewTop + margin ||
+        nodeRight > viewRight - margin ||
+        nodeBottom > viewBottom - margin;
+
+      if (!isOutside) return;
+
+      setCenter(
+        position.x + APPROX_NODE_W / 2,
+        position.y + APPROX_NODE_H / 2,
+        { duration: 300 },
+      );
+    },
+    [getViewport, setCenter],
+  );
+
   /* allow nodes to request a snapshot (for label/color edits) */
   useEffect(() => {
     const handler = () => snapshot();
@@ -283,11 +322,13 @@ function CanvasInner() {
         target?.isContentEditable;
       if (isTyping) return;
 
-      if (e.key === 'z' && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+
+      if (key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
       }
-      if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+      if (key === 'y' || (key === 'z' && e.shiftKey)) {
         e.preventDefault();
         redo();
       }
@@ -383,8 +424,9 @@ function CanvasInner() {
           eds,
         ),
       );
+      maybeRevealPosition(position);
     },
-    [layoutMode, nodes, setEdges, setNodes, snapshot, theme],
+    [layoutMode, nodes, setEdges, setNodes, snapshot, theme, maybeRevealPosition],
   );
 
   /* ── double-click canvas → new root node ── */
@@ -399,8 +441,9 @@ function CanvasInner() {
         data: { label: 'New Node', isPortal: false, color: '' },
       };
       setNodes((nds) => [...nds, newNode]);
+      maybeRevealPosition(position);
     },
-    [screenToFlowPosition, setNodes, snapshot],
+    [screenToFlowPosition, setNodes, snapshot, maybeRevealPosition],
   );
 
   /* ── right-click canvas → context menu ── */
@@ -425,21 +468,24 @@ function CanvasInner() {
       };
       setNodes((nds) => [...nds, newNode]);
       setCanvasMenu(null);
+      maybeRevealPosition(position);
     },
-    [setNodes, snapshot],
+    [setNodes, snapshot, maybeRevealPosition],
   );
 
   /* ── keyboard shortcuts ── */
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       /* Ctrl+Z / Cmd+Z → undo */
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      const key = e.key.toLowerCase();
+
+      if ((e.ctrlKey || e.metaKey) && key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
       /* Ctrl+Shift+Z or Ctrl+Y → redo */
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+      if ((e.ctrlKey || e.metaKey) && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
         redo();
         return;
@@ -462,7 +508,7 @@ function CanvasInner() {
           position: pos,
           data: { label: 'Child', isPortal: false, color: '' },
         };
-        setNodes((nds) => [...nds, newNode]);
+        setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, childId));
         setEdges((eds) =>
           addEdge(
             {
@@ -476,6 +522,7 @@ function CanvasInner() {
             eds,
           ),
         );
+        maybeRevealPosition(pos);
       }
 
       /* Enter → sibling node */
@@ -506,6 +553,7 @@ function CanvasInner() {
           : [];
         setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, siblingId));
         setEdges((eds) => [...eds, ...newEdges]);
+        maybeRevealPosition(pos);
       }
 
       /* Delete / Backspace → remove node */
@@ -563,7 +611,7 @@ function CanvasInner() {
         }
       }
     },
-    [nodes, edges, setNodes, setEdges, createFile, activeFileId, layoutMode, theme, snapshot, undo, redo],
+    [nodes, edges, setNodes, setEdges, createFile, activeFileId, layoutMode, theme, snapshot, undo, redo, maybeRevealPosition],
   );
 
   /* ── auto-layout ── */
@@ -624,6 +672,7 @@ function CanvasInner() {
               eds,
             ),
           );
+          maybeRevealPosition(pos);
           break;
         }
 
@@ -689,6 +738,7 @@ function CanvasInner() {
             : [];
           setNodes((nds) => resolveCollisions([...nds, newNode], layoutMode, siblingId));
           setEdges((eds) => [...eds, ...newEdges]);
+          maybeRevealPosition(pos);
           break;
         }
 
@@ -755,7 +805,7 @@ function CanvasInner() {
   }
 
   return (
-    <div className="flex-1 h-full" onKeyDown={onKeyDown} tabIndex={0}>
+    <div ref={wrapperRef} className="flex-1 h-full" onKeyDown={onKeyDown} tabIndex={0}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
