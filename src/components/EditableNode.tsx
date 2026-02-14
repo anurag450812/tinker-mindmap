@@ -40,17 +40,33 @@ function EditableNode({ id, data, selected }: NodeProps) {
 
   // Close menu when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) {
+    const handleClickOutside = (e: PointerEvent) => {
+      const target = e.target as EventTarget | null;
+      if (!target) return;
+      if (menuRef.current && !menuRef.current.contains(target as unknown as globalThis.Node)) {
         setShowMenu(false);
         setShowColorPicker(false);
       }
     };
     if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener('pointerdown', handleClickOutside, true);
+      return () => document.removeEventListener('pointerdown', handleClickOutside, true);
     }
   }, [showMenu]);
+
+  // Start editing when Canvas requests it (type-to-edit)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ nodeId: string; text?: string }>;
+      if (ce.detail?.nodeId !== id) return;
+      setShowMenu(false);
+      setShowColorPicker(false);
+      setEditing(true);
+      setLabel(ce.detail?.text ?? '');
+    };
+    window.addEventListener('nodeStartEdit', handler);
+    return () => window.removeEventListener('nodeStartEdit', handler);
+  }, [id]);
 
   const commitLabel = useCallback(() => {
     setEditing(false);
@@ -149,11 +165,13 @@ function EditableNode({ id, data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
+        id="left"
         className={`!w-2 !h-2 !border-0 !-left-1 ${isDark ? '!bg-white/30' : '!bg-gray-300'}`}
       />
       <Handle
         type="source"
         position={Position.Right}
+        id="right"
         className={`!w-2 !h-2 !border-0 !-right-1 ${isDark ? '!bg-white/30' : '!bg-gray-300'}`}
       />
       <Handle

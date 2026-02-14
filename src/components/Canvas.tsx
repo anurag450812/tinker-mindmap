@@ -47,8 +47,8 @@ function getChildPosition(
     }
     case 'orgchart': {
       // Downward tree: children below parent, spread horizontally
-      const gapX = 240;
-      const gapY = 150;
+      const gapX = 280;
+      const gapY = 170;
       const offsetX = (existingSiblingCount - (existingSiblingCount > 0 ? (existingSiblingCount - 1) / 2 : 0)) * gapX;
       const startX = parent.position.x - ((existingSiblingCount) * gapX) / 2;
       return {
@@ -59,7 +59,7 @@ function getChildPosition(
     case 'logic': {
       // To the right, stacked vertically with equal gaps
       const gapX = 300;
-      const gapY = 100;
+      const gapY = 120;
       const totalHeight = existingSiblingCount * gapY;
       const startY = parent.position.y - totalHeight / 2;
       return {
@@ -79,9 +79,9 @@ function getSiblingPosition(
     case 'mindmap':
       return { x: selected.position.x, y: selected.position.y + 120 };
     case 'orgchart':
-      return { x: selected.position.x + 240, y: selected.position.y };
+      return { x: selected.position.x + 280, y: selected.position.y };
     case 'logic':
-      return { x: selected.position.x, y: selected.position.y + 100 };
+      return { x: selected.position.x, y: selected.position.y + 120 };
   }
 }
 
@@ -105,6 +105,14 @@ function edgeTemplate(layoutMode: LayoutMode, theme: 'dark' | 'light') {
       ...base,
       sourceHandle: 'bottom',
       targetHandle: 'top',
+    };
+  }
+
+  if (layoutMode === 'logic') {
+    return {
+      ...base,
+      sourceHandle: 'right',
+      targetHandle: 'left',
     };
   }
 
@@ -155,14 +163,16 @@ function CanvasInner() {
 
   /* close canvas menu when clicking outside */
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (canvasMenuRef.current && !canvasMenuRef.current.contains(e.target as HTMLElement)) {
+    const handleClickOutside = (e: PointerEvent) => {
+      const target = e.target as EventTarget | null;
+      if (!target) return;
+      if (canvasMenuRef.current && !canvasMenuRef.current.contains(target as unknown as globalThis.Node)) {
         setCanvasMenu(null);
       }
     };
     if (canvasMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener('pointerdown', handleClickOutside, true);
+      return () => document.removeEventListener('pointerdown', handleClickOutside, true);
     }
   }, [canvasMenu]);
 
@@ -216,6 +226,48 @@ function CanvasInner() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [undo, redo]);
+
+  /* global shortcuts: Ctrl+X delete + type-to-edit */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTyping =
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isTyping) return;
+
+      const selected = nodes.find((n) => n.selected);
+      if (!selected) return;
+
+      // Ctrl/Cmd+X deletes node
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        snapshot();
+        setNodes((nds) => nds.filter((n) => n.id !== selected.id));
+        setEdges((eds) => eds.filter((ed) => ed.source !== selected.id && ed.target !== selected.id));
+        return;
+      }
+
+      // Type-to-edit: printable characters start editing and replace content
+      const isPrintable =
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey;
+      if (isPrintable) {
+        e.preventDefault();
+        window.dispatchEvent(
+          new CustomEvent('nodeStartEdit', {
+            detail: { nodeId: selected.id, text: e.key },
+          }),
+        );
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [nodes, snapshot, setNodes, setEdges]);
 
   /* ── connection ── */
   const onConnect = useCallback(
@@ -365,6 +417,16 @@ function CanvasInner() {
           eds.filter(
             (ed) => ed.source !== selected.id && ed.target !== selected.id,
           ),
+        );
+      }
+
+      /* Ctrl/Cmd+X → delete node */
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        snapshot();
+        setNodes((nds) => nds.filter((n) => n.id !== selected.id));
+        setEdges((eds) =>
+          eds.filter((ed) => ed.source !== selected.id && ed.target !== selected.id),
         );
       }
 
