@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useMemo, useEffect } from 'react';
+import { useCallback, useRef, useMemo, useEffect, useState } from 'react';
 import ReactFlow, {
   Background,
   MiniMap,
@@ -36,7 +36,7 @@ function getChildPosition(
   switch (mode) {
     case 'mindmap': {
       // Circular placement around parent
-      const radius = 200;
+      const radius = 220;
       const angleStep = (2 * Math.PI) / Math.max(existingSiblingCount + 1, 6);
       const angle = angleStep * existingSiblingCount - Math.PI / 2;
       return {
@@ -46,21 +46,23 @@ function getChildPosition(
     }
     case 'orgchart': {
       // Downward tree: children below parent, spread horizontally
-      const gapX = 200;
+      const gapX = 240;
+      const gapY = 150;
       const offsetX = (existingSiblingCount - (existingSiblingCount > 0 ? (existingSiblingCount - 1) / 2 : 0)) * gapX;
       const startX = parent.position.x - ((existingSiblingCount) * gapX) / 2;
       return {
         x: startX + existingSiblingCount * gapX,
-        y: parent.position.y + 140,
+        y: parent.position.y + gapY,
       };
     }
     case 'logic': {
       // To the right, stacked vertically with equal gaps
-      const gapY = 80;
+      const gapX = 300;
+      const gapY = 100;
       const totalHeight = existingSiblingCount * gapY;
       const startY = parent.position.y - totalHeight / 2;
       return {
-        x: parent.position.x + 280,
+        x: parent.position.x + gapX,
         y: startY + existingSiblingCount * gapY,
       };
     }
@@ -74,11 +76,11 @@ function getSiblingPosition(
 ): { x: number; y: number } {
   switch (mode) {
     case 'mindmap':
-      return { x: selected.position.x, y: selected.position.y + 100 };
+      return { x: selected.position.x, y: selected.position.y + 120 };
     case 'orgchart':
-      return { x: selected.position.x + 200, y: selected.position.y };
+      return { x: selected.position.x + 240, y: selected.position.y };
     case 'logic':
-      return { x: selected.position.x, y: selected.position.y + 80 };
+      return { x: selected.position.x, y: selected.position.y + 100 };
   }
 }
 
@@ -107,7 +109,10 @@ function CanvasInner() {
 
   const { screenToFlowPosition, fitView } = useReactFlow();
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasMenuRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
+
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; flowX: number; flowY: number } | null>(null);
 
   /* sync store → local when activeFile changes */
   useEffect(() => {
@@ -127,6 +132,19 @@ function CanvasInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFile?.updatedAt]);
+
+  /* close canvas menu when clicking outside */
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (canvasMenuRef.current && !canvasMenuRef.current.contains(e.target as HTMLElement)) {
+        setCanvasMenu(null);
+      }
+    };
+    if (canvasMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [canvasMenu]);
 
   /* auto-save: debounce local → store */
   useEffect(() => {
@@ -181,6 +199,32 @@ function CanvasInner() {
       setNodes((nds) => [...nds, newNode]);
     },
     [screenToFlowPosition, setNodes, snapshot],
+  );
+
+  /* ── right-click canvas → context menu ── */
+  const onPaneContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      setCanvasMenu({ x: e.clientX, y: e.clientY, flowX: position.x, flowY: position.y });
+    },
+    [screenToFlowPosition],
+  );
+
+  /* ── add node from canvas context menu ── */
+  const addNodeAtPosition = useCallback(
+    (position: { x: number; y: number }) => {
+      snapshot();
+      const newNode: Node = {
+        id: uid(),
+        type: 'editable',
+        position,
+        data: { label: 'New Node', isPortal: false, color: '' },
+      };
+      setNodes((nds) => [...nds, newNode]);
+      setCanvasMenu(null);
+    },
+    [setNodes, snapshot],
   );
 
   /* ── keyboard shortcuts ── */
@@ -372,6 +416,47 @@ function CanvasInner() {
           break;
         }
 
+        case 'addParent': {
+          const parentId = uid();
+          const parentPos = { x: node.position.x, y: node.position.y - 150 };
+          const newParent: Node = {
+            id: parentId,
+            type: 'editable',
+            position: parentPos,
+            data: { label: 'Parent', isPortal: false, color: '' },
+          };
+          
+          // Find all current parent edges of the node
+          const currentParentEdges = edges.filter((ed) => ed.target === nodeId);
+          
+          // Remove old parent edges and add new ones
+          const updatedEdges = edges.filter((ed) => ed.target !== nodeId);
+          
+          // Connect new parent to the node
+          const newEdgeToNode = {
+            id: `e-${parentId}-${nodeId}`,
+            source: parentId,
+            target: nodeId,
+            type: 'smoothstep' as const,
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+            style: edgeStyle(theme),
+          };
+          
+          // If node had parents before, connect them to new parent
+          const newParentEdges = currentParentEdges.map((edge) => ({
+            id: `e-${edge.source}-${parentId}`,
+            source: edge.source,
+            target: parentId,
+            type: 'smoothstep' as const,
+            markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
+            style: edgeStyle(theme),
+          }));
+          
+          setNodes((nds) => [...nds, newParent]);
+          setEdges(() => [...updatedEdges, newEdgeToNode, ...newParentEdges]);
+          break;
+        }
+
         case 'addSibling': {
           const siblingId = uid();
           const parentEdge = edges.find((ed) => ed.target === nodeId);
@@ -471,6 +556,7 @@ function CanvasInner() {
         onConnect={onConnect}
         onPaneClick={() => {}}
         onDoubleClick={onPaneDoubleClick}
+        onPaneContextMenu={onPaneContextMenu}
         nodeTypes={nodeTypes}
         fitView
         minZoom={0.1}
@@ -509,6 +595,32 @@ function CanvasInner() {
           }
         />
       </ReactFlow>
+
+      {/* canvas context menu */}
+      {canvasMenu && (
+        <div
+          ref={canvasMenuRef}
+          className={`fixed z-[9999] min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden ${
+            isDark ? 'bg-gray-900/95 border-white/10' : 'bg-white/95 border-gray-200'
+          }`}
+          style={{ left: canvasMenu.x, top: canvasMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-1">
+            <button
+              onClick={() => addNodeAtPosition({ x: canvasMenu.flowX, y: canvasMenu.flowY })}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
+              }`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M5 12h14M12 5v14" />
+              </svg>
+              Add Node Here
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* breadcrumb */}
       {breadcrumb.length > 1 && (

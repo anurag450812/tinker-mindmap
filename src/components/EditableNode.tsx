@@ -11,7 +11,7 @@ function EditableNode({ id, data, selected }: NodeProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const updateNodes = useAppStore((s) => s.updateNodes);
   const pushBreadcrumb = useAppStore((s) => s.pushBreadcrumb);
@@ -28,6 +28,14 @@ function EditableNode({ id, data, selected }: NodeProps) {
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+    }
+  }, [editing, label]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -159,20 +167,24 @@ function EditableNode({ id, data, selected }: NodeProps) {
       />
 
       {editing ? (
-        <input
-          ref={inputRef}
+        <textarea
+          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           onBlur={commitLabel}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commitLabel();
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              commitLabel();
+            }
             if (e.key === 'Escape') { setLabel(data.label as string); setEditing(false); }
             e.stopPropagation();
           }}
-          className={`w-full bg-transparent outline-none text-center ${isDark ? 'text-white' : 'text-gray-800'}`}
+          className={`w-full bg-transparent outline-none text-center resize-none overflow-hidden ${isDark ? 'text-white' : 'text-gray-800'}`}
+          rows={1}
+          style={{ minHeight: '1.25rem' }}
         />
       ) : (
-        <span className={`select-none text-center block truncate ${
+        <span className={`select-none text-center block whitespace-pre-wrap break-words ${
           isDark ? 'text-white/90' : 'text-gray-700'
         }`}>
           {data.label as string}
@@ -217,6 +229,17 @@ function EditableNode({ id, data, selected }: NodeProps) {
                 <path d="M5 12h14M12 5v14" />
               </svg>
               Add Child
+            </button>
+            <button
+              onClick={() => triggerAction('addParent')}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                isDark ? 'hover:bg-white/10 text-white/80' : 'hover:bg-gray-100 text-gray-700'
+              }`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+              Add Parent
             </button>
             <button
               onClick={() => triggerAction('addSibling')}

@@ -12,9 +12,9 @@ interface LayoutOptions {
 }
 
 const LAYOUT_PRESETS: Record<LayoutMode, LayoutOptions> = {
-  mindmap: { direction: 'LR', rankSep: 120, nodeSep: 60 },
-  orgchart: { direction: 'TB', rankSep: 100, nodeSep: 80 },
-  logic: { direction: 'TB', rankSep: 80, nodeSep: 50 },
+  mindmap: { direction: 'LR', rankSep: 140, nodeSep: 80 },
+  orgchart: { direction: 'TB', rankSep: 120, nodeSep: 100 },
+  logic: { direction: 'TB', rankSep: 100, nodeSep: 70 },
 };
 
 export function applyLayout(
